@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>EventHub — Create & List Events</title>
+  <style>
+    :root{font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial;}
+    body{max-width:980px;margin:28px auto;padding:12px}
+    h1{font-size:1.6rem;margin-bottom:8px}
+    .card{border:1px solid #e2e8f0;border-radius:10px;padding:16px;margin-bottom:14px;box-shadow:0 6px 18px rgba(0,0,0,0.03)}
+    form .row{display:flex;gap:10px;flex-wrap:wrap}
+    label{display:block;font-size:0.9rem;margin-bottom:4px}
+    input[type=text], input[type=datetime-local], input[type=number], textarea{width:100%;padding:8px;border-radius:6px;border:1px solid #cbd5e1}
+    textarea{min-height:80px}
+    .two{flex:1 1 48%}
+    .actions{display:flex;gap:8px;align-items:center;margin-top:8px}
+    button{padding:8px 12px;border-radius:8px;border:none;cursor:pointer}
+    button.primary{background:#2563eb;color:#fff}
+    button.ghost{background:#f1f5f9}
+    .error{color:#b91c1c;margin-top:8px}
+    .events-list .event{border-left:4px solid #60a5fa;padding:10px;margin-bottom:10px;border-radius:6px;background:#fff}
+    .meta{font-size:0.85rem;color:#6b7280}
+    pre{white-space:pre-wrap;background:#0f172a;color:#e6fffa;padding:8px;border-radius:6px;overflow:auto}
+    @media (max-width:640px){.two{flex-basis:100%}}
+  </style>
+</head>
+<body>
+  <h1>EventHub — Create & List Events</h1>
+
+  <div class="card" id="createCard">
+    <h2>Create new event</h2>
+    <form id="eventForm">
+      <div class="row">
+        <div class="two">
+          <label for="title">Title *</label>
+          <input id="title" name="title" type="text" required />
+        </div>
+        <div class="two">
+          <label for="date">Date & time *</label>
+          <input id="date" name="date" type="datetime-local" required />
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:8px">
+        <div style="flex:1 1 66%">
+          <label for="location">Location *</label>
+          <input id="location" name="location" type="text" required />
+        </div>
+        <div style="flex:1 1 30%">
+          <label for="maxAttendees">Max Attendees *</label>
+          <input id="maxAttendees" name="maxAttendees" type="number" min="1" required />
+        </div>
+      </div>
+
+      <div style="margin-top:8px">
+        <label for="description">Description</label>
+        <textarea id="description" name="description" placeholder="Optional"></textarea>
+      </div>
+
+      <div class="actions">
+        <button class="primary" type="submit">Create Event</button>
+        <button class="ghost" type="button" id="resetBtn">Reset</button>
+        <div id="formStatus" style="margin-left:12px"></div>
+      </div>
+      <div class="error" id="formError" role="alert" aria-live="polite"></div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Events</h2>
+    <div style="margin-bottom:8px">
+      <button id="refreshBtn" class="ghost" type="button">Refresh list</button>
+      <span id="listInfo" style="margin-left:8px;color:#374151"></span>
+    </div>
+    <div class="events-list" id="eventsList">
+      <!-- events injected here -->
+    </div>
+    <div id="emptyMsg" style="color:#6b7280"></div>
+  </div>
+
+  <script>
+    // Change this if your API is hosted elsewhere
+    const API_BASE = '';
+
+    // Utils
+    function qs(id){return document.getElementById(id)}
+
+    async function fetchEvents(){
+      qs('listInfo').textContent = 'Loading...';
+      try{
+        const res = await fetch((API_BASE || '') + '/api/events');
+        if(!res.ok) throw new Error('Failed to fetch events: ' + res.status);
+        const events = await res.json();
+        renderEvents(events);
+        qs('listInfo').textContent = `Loaded ${events.length} event(s)`;
+      }catch(err){
+        qs('listInfo').textContent = 'Error loading events';
+        qs('eventsList').innerHTML = '<div class="error">' + (err.message || err) + '</div>';
+      }
+    }
+
+    function renderEvents(events){
+      const container = qs('eventsList');
+      container.innerHTML = '';
+      if(!Array.isArray(events) || events.length === 0){
+        qs('emptyMsg').textContent = 'No events yet. Create one above.';
+        return;
+      }
+      qs('emptyMsg').textContent = '';
+      // Newest first
+      events.slice().reverse().forEach(ev => {
+        const div = document.createElement('div');
+        div.className = 'event';
+        div.innerHTML = `
+          <strong>${escapeHtml(ev.title)}</strong>
+          <div class="meta">${formatDate(ev.date)} • ${escapeHtml(ev.location)} • ${ev.currentAttendees}/${ev.maxAttendees} attending • <em>${escapeHtml(ev.status)}</em></div>
+          <div style="margin-top:8px">${escapeHtml(ev.description || '')}</div>
+          <div style="margin-top:8px;font-size:0.85rem;color:#475569">ID: ${escapeHtml(ev.eventId || '')}</div>
+        `;
+        container.appendChild(div);
+      });
+    }
+
+    function formatDate(d){
+      try{ return new Date(d).toLocaleString(); }catch(e){return d}
+    }
+
+    function escapeHtml(s){
+      if(!s && s !== 0) return '';
+      return String(s)
+        .replace(/&/g,'&amp;')
+        .replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;')
+        .replace(/'/g,'&#039;');
+    }
+
+    // Form handling
+    qs('eventForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      qs('formError').textContent = '';
+      qs('formStatus').textContent = 'Submitting...';
+
+      const payload = {
+        title: qs('title').value.trim(),
+        description: qs('description').value.trim(),
+        // Convert datetime-local to ISO string
+        date: convertLocalToISO(qs('date').value),
+        location: qs('location').value.trim(),
+        maxAttendees: Number(qs('maxAttendees').value)
+      };
+
+      // Basic client side validation
+      if(!payload.title || !payload.date || !payload.location || !payload.maxAttendees){
+        qs('formError').textContent = 'Please fill all required fields.';
+        qs('formStatus').textContent = '';
+        return;
+      }
+
+      try{
+        const res = await fetch((API_BASE || '') + '/api/events', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify(payload)
+        });
+        const body = await res.json().catch(()=>null);
+        if(!res.ok){
+          qs('formError').textContent = body && body.error ? body.error : ('Server error: ' + res.status);
+          qs('formStatus').textContent = '';
+          return;
+        }
+
+        // Success
+        qs('formStatus').textContent = 'Created ✓';
+        // Reset form (keep date for convenience)
+        qs('title').value = '';
+        qs('description').value = '';
+        qs('location').value = '';
+        qs('maxAttendees').value = '';
+
+        // Immediately refresh list
+        await fetchEvents();
+      }catch(err){
+        qs('formError').textContent = err.message || err;
+      }finally{
+        setTimeout(()=>{qs('formStatus').textContent = ''}, 2500);
+      }
+    });
+
+    qs('resetBtn').addEventListener('click', () => qs('eventForm').reset());
+    qs('refreshBtn').addEventListener('click', fetchEvents);
+
+    function convertLocalToISO(localVal){
+      if(!localVal) return '';
+      // localVal like "2025-10-01T10:00"
+      const dt = new Date(localVal);
+      return dt.toISOString();
+    }
+
+    // Load on start
+    fetchEvents();
+  </script>
+</body>
+</html>
